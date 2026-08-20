@@ -14,12 +14,12 @@ original buffer remains unchanged and focused.
 
 ## Installation
 
-The plugin is already usable from this directory. Add it to Neovim's runtime
-path with your plugin manager. For example, with lazy.nvim:
+Install the plugin from `DrXiao/nvim-enpfr` with your plugin manager. For
+example, with lazy.nvim:
 
 ```lua
 {
-  dir = "/home/norman/workspace/drxiao/ai-ws/nvim-enpfr",
+  "DrXiao/nvim-enpfr",
   config = function()
     require("enpfr").setup({
       backend = "claude",
@@ -38,7 +38,7 @@ call in your `init.lua`:
 
 ```lua
 use {
-  '~/workspace/nvim/nvim-enpfr',
+  "DrXiao/nvim-enpfr",
   config = function()
     require("enpfr").setup({
       backend = "claude",
@@ -54,10 +54,12 @@ use {
 
 Without a plugin manager:
 
+```sh
+git clone https://github.com/DrXiao/nvim-enpfr.git \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/plugins/start/nvim-enpfr"
+```
+
 ```lua
-vim.opt.runtimepath:prepend(
-  "/home/norman/workspace/drxiao/ai-ws/nvim-enpfr"
-)
 require("enpfr").setup()
 ```
 
@@ -101,7 +103,7 @@ available to your account.
 
 ```lua
 use {
-  '~/workspace/nvim/nvim-enpfr',
+  "DrXiao/nvim-enpfr",
   config = function()
     require("enpfr").setup({
       keymap = "<F8>",
