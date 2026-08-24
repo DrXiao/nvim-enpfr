@@ -67,7 +67,7 @@ require("enpfr").setup()
 
 ```lua
 require("enpfr").setup({
-  -- Backend used when :EnPolish receives no backend argument.
+  -- Backend used when :EnPfr receives no backend argument.
   backend = "claude",
 
   -- A nil model lets that CLI use its configured default.
@@ -117,7 +117,7 @@ text in visual mode first, then press `<F8>` to polish it. Setting `keymap = fal
 disables the built-in mapping entirely if you'd rather define your own:
 
 ```lua
-map('x', '<F8>', ':EnPolish<CR>')
+map('x', '<F8>', ':EnPfr<CR>')
 ```
 
 ## Usage
@@ -132,19 +132,19 @@ You can select a backend and model for an individual request from the visual
 command line:
 
 ```vim
-:EnPolish
-:EnPolish claude opus
-:EnPolish codex gpt-5.4
-:EnPolish opencode openai/gpt-5.4
+:EnPfr
+:EnPfr claude opus
+:EnPfr codex gpt-5.4
+:EnPfr opencode openai/gpt-5.4
 ```
 
 Neovim automatically prefixes the command with the visual range, so it will
-appear as `:'<,'>EnPolish ...`.
+appear as `:'<,'>EnPfr ...`.
 
 Cancel an active request with:
 
 ```vim
-:EnPolishCancel
+:EnPfrCancel
 ```
 
 Starting another request also cancels the previous request. The existing
