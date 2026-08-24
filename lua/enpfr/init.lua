@@ -239,7 +239,7 @@ end
 
 local function selection_from_command(command)
   if command.range == 0 then
-    return nil, "Select English text in visual mode before running :EnPolish"
+    return nil, "Select English text in visual mode before running :EnPfr"
   end
 
   local buffer = vim.api.nvim_get_current_buf()
@@ -284,7 +284,7 @@ function M.polish_visual(command)
     return
   end
   if #command.fargs > 2 then
-    notify("Usage: EnPolish [backend] [model]", vim.log.levels.ERROR)
+    notify("Usage: EnPfr [backend] [model]", vim.log.levels.ERROR)
     return
   end
 
@@ -333,14 +333,14 @@ local function complete(argument, command_line)
 end
 
 local function create_commands()
-  vim.api.nvim_create_user_command("EnPolish", M.polish_visual, {
+  vim.api.nvim_create_user_command("EnPfr", M.polish_visual, {
     nargs = "*",
     range = true,
     complete = complete,
     desc = "Polish visually selected English text",
     force = true,
   })
-  vim.api.nvim_create_user_command("EnPolishCancel", M.cancel, {
+  vim.api.nvim_create_user_command("EnPfrCancel", M.cancel, {
     desc = "Cancel the active English polishing request",
     force = true,
   })
@@ -366,7 +366,7 @@ function M.setup(options)
 
   create_commands()
   if config.keymap and config.keymap ~= "" then
-    vim.keymap.set("x", config.keymap, ":EnPolish<CR>", {
+    vim.keymap.set("x", config.keymap, ":EnPfr<CR>", {
       desc = "Polish selected English text",
       silent = true,
     })
