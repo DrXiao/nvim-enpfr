@@ -1,8 +1,8 @@
 # nvim-enpfr
 
-Polish visually selected English text with Claude Code, Codex CLI, or
-OpenCode. The revised text appears in a read-only vertical split while the
-original buffer remains unchanged and focused.
+Polish visually selected English text with Claude Code, Codex CLI, OpenCode,
+or Antigravity CLI. The revised text appears in a read-only vertical split
+while the original buffer remains unchanged and focused.
 
 ## Requirements
 
@@ -11,6 +11,7 @@ original buffer remains unchanged and focused.
   - `claude`
   - `codex`
   - `opencode`
+  - `agy`
 
 ## Installation
 
@@ -27,6 +28,7 @@ example, with lazy.nvim:
         claude = "sonnet",
         codex = "gpt-5.4",
         opencode = "openai/gpt-5.4",
+        agy = "gemini-3.8-flash-high",
       },
     })
   end,
@@ -46,6 +48,7 @@ use {
         claude = "sonnet",
         codex = "gpt-5.4",
         opencode = "openai/gpt-5.4",
+        agy = "gemini-3.8-flash-high",
       },
     })
   end,
@@ -93,7 +96,8 @@ require("enpfr").setup({
 
 Model names are passed directly to the selected CLI. OpenCode model names must
 use the `provider/model` form. Run `opencode models` to see the models currently
-available to your account.
+available to your account. Agy model names are passed directly to `agy --model`
+(e.g. `gemini-3.8-flash-high`).
 
 ### Keymap reference
 
@@ -136,6 +140,7 @@ command line:
 :EnPfr claude opus
 :EnPfr codex gpt-5.4
 :EnPfr opencode openai/gpt-5.4
+:EnPfr agy gemini-3.8-flash-high
 ```
 
 Neovim automatically prefixes the command with the visual range, so it will
@@ -161,6 +166,8 @@ output window is reused within the current tab.
   or repository rules.
 - OpenCode receives inline configuration that denies all tools and disables
   sharing and snapshots.
+- Agy runs with `--sandbox` and without `--dangerously-skip-permissions`, so
+  tool calls are refused by default.
 - Backend failures and malformed output are displayed in the output buffer.
 
 The selected text is sent to the configured AI provider and remains subject to
@@ -173,6 +180,14 @@ changes, and the plugin isolates its working directory and ignores user and
 repository instructions, but the model can still request read-only shell or
 filesystem operations. Do not send untrusted or sensitive text through the
 Codex backend if that residual access is unacceptable.
+
+Agy CLI's default tool refusal is a policy-level "soft deny": the CLI refuses
+the tool call and exits normally, but the model can still attempt one, and no
+documented environment variable forces it to ignore a local
+`~/.gemini/antigravity-cli/settings.json` that grants broader permissions. If
+your machine's Agy configuration allows tools, that configuration takes
+precedence over the plugin's flags. Review your Agy permission settings before
+relying on this backend for untrusted or sensitive text.
 
 ## Tests
 
