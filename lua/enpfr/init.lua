@@ -11,6 +11,7 @@ local defaults = {
     claude = nil,
     codex = nil,
     opencode = nil,
+    agy = nil,
   },
   keymap = "<leader>ep",
   max_input_bytes = 50000,
@@ -221,7 +222,7 @@ local function start_request(text, backend, model, source_window, filetype)
     request_id = current_request,
     working_directory = working_directory,
   }
-  vim.fn.chansend(job_id, prompt.build(text))
+  vim.fn.chansend(job_id, backends.stdin_payload(backend, prompt.build(text)))
   vim.fn.chanclose(job_id, "stdin")
 
   vim.defer_fn(function()

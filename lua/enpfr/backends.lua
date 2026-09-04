@@ -4,6 +4,7 @@ local supported = {
   claude = true,
   codex = true,
   opencode = true,
+  agy = true,
 }
 
 local function check_backend(name)
@@ -46,8 +47,17 @@ function M.command(name, model)
       "--ignore-rules",
       "--json",
     }
-  else
+  elseif name == "opencode" then
     command = { "opencode", "run", "--pure", "--format", "json" }
+  else
+    command = {
+      "agy",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--sandbox",
+    }
   end
 
   add_model(command, model)
@@ -114,6 +124,35 @@ function M.parse(name, output)
     return result.result
   end
 
+  if name == "agy" then
+    local final_result
+    for line in output:gmatch("[^\r\n]+") do
+      local event, err = decode_json(line)
+      if err then
+        return nil, err
+      end
+      if type(event) ~= "table" then
+        return nil, "Agy JSON event must be an object"
+      end
+      if event.event == "result" then
+        final_result = event.result
+      end
+    end
+    if type(final_result) ~= "table" then
+      return nil, "Agy returned no result event"
+    end
+    if final_result.status ~= "SUCCESS" then
+      local message = (type(final_result.error) == "string" and final_result.error ~= "")
+          and final_result.error
+        or ("Agy request status: " .. tostring(final_result.status))
+      return nil, message
+    end
+    if type(final_result.response) ~= "string" or final_result.response == "" then
+      return nil, "Agy returned no revised text"
+    end
+    return final_result.response
+  end
+
   if name == "codex" then
     local final_text
     local _, err = parse_json_lines(output, function(event)
@@ -168,8 +207,16 @@ function M.environment(name)
   }
 end
 
+function M.stdin_payload(name, prompt_text)
+  check_backend(name)
+  if name ~= "agy" then
+    return prompt_text
+  end
+  return vim.json.encode({ event = "user", message = { content = prompt_text } }) .. "\n"
+end
+
 function M.names()
-  return { "claude", "codex", "opencode" }
+  return { "claude", "codex", "opencode", "agy" }
 end
 
 return M
