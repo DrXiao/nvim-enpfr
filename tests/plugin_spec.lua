@@ -76,6 +76,53 @@ test("runs a backend asynchronously without changing the source buffer", functio
   assert(ok, err)
 end)
 
+test("runs the Agy backend asynchronously without changing the source buffer", function()
+  vim.cmd("silent! only")
+  vim.cmd("enew!")
+  local source_window = vim.api.nvim_get_current_win()
+  local source_buffer = vim.api.nvim_get_current_buf()
+  vim.api.nvim_buf_set_lines(source_buffer, 0, -1, false, { "This are original." })
+
+  local directory = vim.fn.tempname()
+  vim.fn.mkdir(directory, "p")
+  local executable = directory .. "/agy"
+  vim.fn.writefile({
+    "#!/bin/sh",
+    "printf '%s\\n' '{\"event\":\"result\",\"result\":{\"status\":\"SUCCESS\",\"response\":\"This is revised.\"}}'",
+  }, executable)
+  vim.fn.setfperm(executable, "rwx------")
+
+  local original_path = vim.env.PATH
+  vim.env.PATH = directory .. ":" .. original_path
+  local ok, err = pcall(function()
+    translator.polish_visual({
+      range = 1,
+      line1 = 1,
+      line2 = 1,
+      fargs = { "agy" },
+    })
+
+    local completed = vim.wait(2000, function()
+      for _, buffer in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_valid(buffer)
+          and vim.api.nvim_buf_get_name(buffer):match("%[English Polish")
+          and vim.api.nvim_buf_get_lines(buffer, 0, 1, false)[1] == "This is revised."
+        then
+          return true
+        end
+      end
+      return false
+    end)
+
+    eq(true, completed)
+    eq(source_window, vim.api.nvim_get_current_win())
+    eq({ "This are original." }, vim.api.nvim_buf_get_lines(source_buffer, 0, -1, false))
+  end)
+  vim.env.PATH = original_path
+  vim.fn.delete(directory, "rf")
+  assert(ok, err)
+end)
+
 test("marks the output as cancelled and ignores late output", function()
   vim.cmd("silent! only")
   vim.cmd("enew!")

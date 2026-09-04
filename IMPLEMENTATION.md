@@ -193,6 +193,33 @@ OpenCode receives an inline configuration through
 
 `--pure` also prevents external OpenCode plugins from loading.
 
+### Antigravity CLI (agy)
+
+```text
+agy
+  --input-format stream-json
+  --output-format stream-json
+  --sandbox
+  --model <model>
+```
+
+Agy is invoked in `stream-json` input mode rather than the simpler `-p
+"prompt"` form because it is unconfirmed whether bare `agy -p` reads the
+prompt from stdin the way Claude's `-p` does in this plugin; `stream-json`
+input is the input contract Agy's own documentation describes for
+non-interactive stdin use. `agy` requires `--output-format stream-json`
+whenever `--input-format stream-json` is set (confirmed against a real
+install: `--output-format json` exits with status 2 and the error
+`--input-format stream-json requires --output-format stream-json`), so the
+response side is also a stream of JSON events rather than a single envelope
+(see "Agy Response" below).
+
+`--sandbox` enables Agy's OS-level containment for any local commands it
+might launch. No `--dangerously-skip-permissions` flag is passed, so tool
+calls remain refused by Agy's default "soft-denied" policy. This differs from
+Claude's `--tools ""`, which removes the tool-calling capability outright: see
+the Safety section of the README for that residual-risk distinction.
+
 ## Sending the Prompt
 
 `start_request()` in `lua/enpfr/init.lua` starts the selected CLI
@@ -205,9 +232,16 @@ local job_id = vim.fn.jobstart(command, job_options)
 The complete prompt is sent over the process's standard input:
 
 ```lua
-vim.fn.chansend(job_id, prompt.build(text))
+vim.fn.chansend(job_id, backends.stdin_payload(backend, prompt.build(text)))
 vim.fn.chanclose(job_id, "stdin")
 ```
+
+`backends.stdin_payload()` returns the prompt text unchanged for Claude,
+Codex, and OpenCode. Agy is the one backend that needs its stdin bytes
+wrapped: because its command is built with `--input-format stream-json`, the
+CLI expects one JSON event per line rather than raw prompt text, so
+`stdin_payload("agy", text)` wraps the built prompt as
+`{"event":"user","message":{"content":"<prompt>"}}\n` before it is sent.
 
 Closing stdin sends EOF and tells the CLI that the prompt is complete.
 
@@ -327,6 +361,28 @@ OpenCode also produces JSON Lines:
 The answer may be split across multiple text events. The parser concatenates
 their `part.text` values in order.
 
+### Agy Response
+
+Agy also produces JSON Lines, one event per line. A captured transcript
+against a real installation looks like:
+
+```json
+{"event":"init","conversation_id":"...","init":{"model":"...","cwd":"...","tools":[...],"permission_mode":"..."}}
+{"event":"step_update","step_update":{"conversation_id":"...","step_index":0,"state":"DONE","step_type":"user_input"}}
+{"event":"step_update","step_update":{"conversation_id":"...","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"This is a sentence."}}
+{"event":"result","result":{"conversation_id":"...","status":"SUCCESS","response":"This is a sentence.","duration_seconds":1.4,"num_turns":1,"usage":{"input_tokens":120,"output_tokens":6,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":126}}}
+```
+
+The revised text is stored in the terminal event's `result.response`. A
+non-`SUCCESS` `result.status` (`ERROR`, `CANCELED`, `INTERRUPTED`, `INVALID`,
+`WAITING`, `RUNNING`) carries a `result.error` string describing the failure
+instead.
+
+`init.init.permission_mode` reflects local Agy configuration
+(`~/.gemini/antigravity-cli/settings.json`'s `toolPermission`), not anything
+the plugin controls; see the Safety section of the README for the residual
+risk this implies.
+
 ## Parsing Backend Responses
 
 `backends.parse()` in `lua/enpfr/backends.lua` owns all
@@ -390,6 +446,27 @@ end
 
 It concatenates the selected text fragments to reconstruct the complete
 revision.
+
+### Agy Parsing
+
+The parser scans every JSONL event, keeps the last event whose `event` field
+is `"result"`, and only then checks `status` before trusting `response`:
+
+```lua
+if event.event == "result" then
+  final_result = event.result
+end
+-- after the loop:
+if final_result.status ~= "SUCCESS" then
+  return nil, final_result.error or ("Agy request status: " .. final_result.status)
+end
+return final_result.response
+```
+
+This is structurally the same JSON-lines scan Codex and OpenCode use, except
+the loop keeps the whole `result` object from the terminal event rather than
+concatenating text fragments, since Agy's `result` event already carries the
+complete answer in one field.
 
 ## Displaying the Revised Text
 
