@@ -218,7 +218,7 @@ response side is also a stream of JSON events rather than a single envelope
 might launch. No `--dangerously-skip-permissions` flag is passed, so tool
 calls remain refused by Agy's default "soft-denied" policy. This differs from
 Claude's `--tools ""`, which removes the tool-calling capability outright: see
-the Safety section of the README for that residual-risk distinction.
+[docs/safety.md](docs/safety.md) for that residual-risk distinction.
 
 ## Sending the Prompt
 
@@ -380,7 +380,7 @@ instead.
 
 `init.init.permission_mode` reflects local Agy configuration
 (`~/.gemini/antigravity-cli/settings.json`'s `toolPermission`), not anything
-the plugin controls; see the Safety section of the README for the residual
+the plugin controls; see [docs/safety.md](docs/safety.md) for the residual
 risk this implies.
 
 ## Parsing Backend Responses
