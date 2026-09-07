@@ -26,6 +26,7 @@ end
 
 dofile("tests/selection_spec.lua")
 dofile("tests/backends_spec.lua")
+dofile("tests/float_ui_spec.lua")
 dofile("tests/prompt_spec.lua")
 dofile("tests/output_spec.lua")
 dofile("tests/plugin_spec.lua")
