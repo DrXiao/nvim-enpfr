@@ -13,7 +13,8 @@ local defaults = {
     opencode = nil,
     agy = nil,
   },
-  keymap = "<leader>ep",
+  keymap = "<leader>enpfr",
+  config_keymap = nil,
   max_input_bytes = 50000,
   max_output_bytes = 200000,
   timeout_ms = 120000,
@@ -24,6 +25,7 @@ local config = vim.deepcopy(defaults)
 local active_request
 local request_id = 0
 local configured_keymap
+local configured_config_keymap
 local configured = false
 
 local NOTIFY_MAX_LENGTH = 200
@@ -52,6 +54,57 @@ local function is_supported(name)
     end
   end
   return false
+end
+
+local function state_file_path()
+  return vim.fn.stdpath("data") .. "/enpfr_settings.json"
+end
+
+local function load_persisted_state()
+  local path = state_file_path()
+  if vim.fn.filereadable(path) ~= 1 then
+    return {}
+  end
+  local ok, lines = pcall(vim.fn.readfile, path)
+  if not ok then
+    return {}
+  end
+  local decode_ok, decoded = pcall(vim.json.decode, table.concat(lines, "\n"))
+  if not decode_ok or type(decoded) ~= "table" then
+    return {}
+  end
+  return decoded
+end
+
+local function save_persisted_state()
+  local payload = vim.json.encode({ backend = config.backend, models = config.models })
+  pcall(vim.fn.writefile, { payload }, state_file_path())
+end
+
+function M.get_config()
+  return vim.deepcopy(config)
+end
+
+function M.set_backend(name)
+  if not is_supported(name) then
+    error("Unsupported backend: " .. tostring(name))
+  end
+  config.backend = name
+  save_persisted_state()
+end
+
+function M.set_model(name, model)
+  if not is_supported(name) then
+    error("Unsupported backend: " .. tostring(name))
+  end
+  config.models[name] = (model and model ~= "") and model or nil
+  save_persisted_state()
+end
+
+function M.reset_settings()
+  config.backend = defaults.backend
+  config.models = vim.deepcopy(defaults.models)
+  pcall(vim.fn.delete, state_file_path())
 end
 
 local function append_stream(target, data, budget)
@@ -102,11 +155,36 @@ local function start_request(text, backend, model, source_window, filetype)
     return
   end
 
-  local model_label = model and (" (" .. model .. ")") or ""
-  output.set_text(destination.buffer, "Polishing with " .. backend .. model_label .. "...")
+  local state = {
+    exited = false,
+    exit_code = nil,
+    stdout_eof = false,
+    stderr_eof = false,
+    finalized = false,
+  }
+
+  -- Always show which model is actually running, even when none is
+  -- configured: show immediate feedback with just the backend name, then
+  -- (once backends.default_model() resolves what the CLI's own default
+  -- actually is) upgrade the same line to include it. Guarded so a
+  -- late-arriving resolution can never clobber a result that already
+  -- finished or a request that has since been superseded.
+  local function set_status(display_model)
+    if state.finalized or current_request ~= request_id then
+      return
+    end
+    local model_label = display_model and (" (" .. display_model .. ")") or ""
+    output.set_text(destination.buffer, "Polishing with " .. backend .. model_label .. "...")
+  end
+
+  set_status(model)
+  if not model then
+    backends.default_model(backend, set_status)
+  end
 
   local working_directory = vim.fn.tempname()
   if vim.fn.mkdir(working_directory, "p", 448) == 0 then
+    state.finalized = true
     local message = "Could not create an isolated working directory"
     output.set_text(destination.buffer, format_error(message, ""))
     notify(message, vim.log.levels.ERROR)
@@ -119,13 +197,6 @@ local function start_request(text, backend, model, source_window, filetype)
     used = 0,
     maximum = config.max_output_bytes,
     exceeded = false,
-  }
-  local state = {
-    exited = false,
-    exit_code = nil,
-    stdout_eof = false,
-    stderr_eof = false,
-    finalized = false,
   }
   local command = backends.command(backend, model)
 
@@ -210,6 +281,7 @@ local function start_request(text, backend, model, source_window, filetype)
   local job_id = vim.fn.jobstart(command, job_options)
 
   if job_id <= 0 then
+    state.finalized = true
     vim.fn.delete(working_directory, "rf")
     local message = "Could not start " .. backend
     output.set_text(destination.buffer, format_error(message, ""))
@@ -345,6 +417,12 @@ local function create_commands()
     desc = "Cancel the active English polishing request",
     force = true,
   })
+  vim.api.nvim_create_user_command("EnPfrConfig", function()
+    require("enpfr.config_ui").open()
+  end, {
+    desc = "Open the EnPfr settings menu",
+    force = true,
+  })
 end
 
 function M.setup(options)
@@ -352,7 +430,16 @@ function M.setup(options)
     pcall(vim.keymap.del, "x", configured_keymap)
     configured_keymap = nil
   end
-  config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), options or {})
+  if configured_config_keymap then
+    pcall(vim.keymap.del, "n", configured_config_keymap)
+    configured_config_keymap = nil
+  end
+  config = vim.tbl_deep_extend(
+    "force",
+    vim.deepcopy(defaults),
+    load_persisted_state(),
+    options or {}
+  )
   if not is_supported(config.backend) then
     error("Unsupported backend: " .. tostring(config.backend))
   end
@@ -372,6 +459,13 @@ function M.setup(options)
       silent = true,
     })
     configured_keymap = config.keymap
+  end
+  if config.config_keymap and config.config_keymap ~= "" then
+    vim.keymap.set("n", config.config_keymap, ":EnPfrConfig<CR>", {
+      desc = "Open the EnPfr settings menu",
+      silent = true,
+    })
+    configured_config_keymap = config.config_keymap
   end
   configured = true
 end

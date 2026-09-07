@@ -10,13 +10,42 @@ test("registers polish and cancellation commands", function()
   eq(".", commands.EnPfr.range)
 end)
 
+test("binds the default <leader>enpfr visual mapping when keymap is unset", function()
+  translator.setup({})
+  assert(vim.fn.maparg("<leader>enpfr", "x") ~= "")
+
+  translator.setup({ keymap = false })
+end)
+
 test("removes the previous visual mapping when disabled", function()
-  translator.setup({ keymap = "<leader>ep" })
-  assert(vim.fn.maparg("<leader>ep", "x") ~= "")
+  translator.setup({ keymap = "<leader>enpfr" })
+  assert(vim.fn.maparg("<leader>enpfr", "x") ~= "")
 
   translator.setup({ keymap = false })
 
-  eq("", vim.fn.maparg("<leader>ep", "x"))
+  eq("", vim.fn.maparg("<leader>enpfr", "x"))
+end)
+
+test("registers the settings menu command", function()
+  translator.setup({ keymap = false })
+  local commands = vim.api.nvim_get_commands({})
+
+  assert(commands.EnPfrConfig, "EnPfrConfig command was not registered")
+end)
+
+test("binds and unbinds a normal-mode keymap to open the settings menu", function()
+  translator.setup({ keymap = false, config_keymap = "<F9>" })
+  assert(vim.fn.maparg("<F9>", "n") ~= "")
+
+  translator.setup({ keymap = false, config_keymap = false })
+
+  eq("", vim.fn.maparg("<F9>", "n"))
+end)
+
+test("does not bind a settings menu keymap unless configured", function()
+  translator.setup({ keymap = false })
+
+  eq("", vim.fn.maparg("<F9>", "n"))
 end)
 
 test("plugin auto-loading preserves setup already applied by a plugin manager", function()
@@ -26,7 +55,7 @@ test("plugin auto-loading preserves setup already applied by a plugin manager", 
   dofile("plugin/enpfr.lua")
 
   assert(vim.fn.maparg("<F8>", "x") ~= "")
-  eq("", vim.fn.maparg("<leader>ep", "x"))
+  eq("", vim.fn.maparg("<leader>enpfr", "x"))
 end)
 
 test("runs a backend asynchronously without changing the source buffer", function()
@@ -333,6 +362,114 @@ test("does not finalize until exit and both stream EOF signals arrive", function
     callbacks.on_stderr(42, { "" })
     eq("Complete output.", vim.api.nvim_buf_get_lines(output_buffer, 0, 1, false)[1])
     eq(0, vim.fn.isdirectory(callbacks.cwd))
+  end)
+
+  vim.fn.executable = original.executable
+  vim.fn.jobstart = original.jobstart
+  vim.fn.chansend = original.chansend
+  vim.fn.chanclose = original.chanclose
+  assert(ok, err)
+end)
+
+test("shows the assumed default model in the status line when none is configured", function()
+  vim.cmd("silent! only")
+  vim.cmd("enew!")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "Original." })
+
+  local original = {
+    executable = vim.fn.executable,
+    jobstart = vim.fn.jobstart,
+    chansend = vim.fn.chansend,
+    chanclose = vim.fn.chanclose,
+  }
+  vim.fn.executable = function() return 1 end
+  vim.fn.jobstart = function() return 42 end
+  vim.fn.chansend = function() return 1 end
+  vim.fn.chanclose = function() return 1 end
+
+  local ok, err = pcall(function()
+    require("enpfr.backends").clear_default_cache()
+    translator.setup({ keymap = false, timeout_ms = 1000 })
+    -- No model configured and none passed to :EnPfr, so the plugin must
+    -- resolve backends.default_model("claude", ...) to label this line.
+    translator.polish_visual({ range = 1, line1 = 1, line2 = 1, fargs = { "claude" } })
+
+    local output_buffer
+    for _, buffer in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_valid(buffer)
+        and vim.api.nvim_buf_get_name(buffer):match("%[English Polish")
+      then
+        output_buffer = buffer
+      end
+    end
+    assert(output_buffer, "output buffer was not created")
+
+    -- Immediate feedback shows before the default model is known.
+    eq("Polishing with claude...", vim.api.nvim_buf_get_lines(output_buffer, 0, 1, false)[1])
+
+    local updated = vim.wait(200, function()
+      return vim.api.nvim_buf_get_lines(output_buffer, 0, 1, false)[1] == "Polishing with claude (haiku)..."
+    end)
+    eq(true, updated)
+  end)
+
+  vim.fn.executable = original.executable
+  vim.fn.jobstart = original.jobstart
+  vim.fn.chansend = original.chansend
+  vim.fn.chanclose = original.chanclose
+  assert(ok, err)
+end)
+
+test("a late-arriving default model resolution never overwrites a finished result", function()
+  vim.cmd("silent! only")
+  vim.cmd("enew!")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "Original." })
+
+  local original = {
+    executable = vim.fn.executable,
+    jobstart = vim.fn.jobstart,
+    chansend = vim.fn.chansend,
+    chanclose = vim.fn.chanclose,
+  }
+  local callbacks
+  vim.fn.executable = function() return 1 end
+  vim.fn.jobstart = function(_, options)
+    callbacks = options
+    return 42
+  end
+  vim.fn.chansend = function() return 1 end
+  vim.fn.chanclose = function() return 1 end
+
+  local ok, err = pcall(function()
+    require("enpfr.backends").clear_default_cache()
+    translator.setup({ keymap = false, timeout_ms = 1000 })
+    translator.polish_visual({ range = 1, line1 = 1, line2 = 1, fargs = { "claude" } })
+
+    local output_buffer
+    for _, buffer in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_valid(buffer)
+        and vim.api.nvim_buf_get_name(buffer):match("%[English Polish")
+      then
+        output_buffer = buffer
+      end
+    end
+    assert(output_buffer, "output buffer was not created")
+
+    -- Finish the request before the deferred default_model() lookup (still
+    -- pending on the event loop from polish_visual above) has a chance to
+    -- fire and call set_status() again.
+    callbacks.on_stdout(42, {
+      '{"type":"result","subtype":"success","result":"Complete output."}',
+    })
+    callbacks.on_stdout(42, { "" })
+    callbacks.on_stderr(42, { "" })
+    callbacks.on_exit(42, 0)
+    eq("Complete output.", vim.api.nvim_buf_get_lines(output_buffer, 0, 1, false)[1])
+
+    -- Let the pending default_model() callback actually run and confirm it
+    -- was a no-op against the already-finalized buffer.
+    vim.wait(100)
+    eq("Complete output.", vim.api.nvim_buf_get_lines(output_buffer, 0, 1, false)[1])
   end)
 
   vim.fn.executable = original.executable

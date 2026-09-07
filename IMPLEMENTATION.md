@@ -218,7 +218,7 @@ response side is also a stream of JSON events rather than a single envelope
 might launch. No `--dangerously-skip-permissions` flag is passed, so tool
 calls remain refused by Agy's default "soft-denied" policy. This differs from
 Claude's `--tools ""`, which removes the tool-calling capability outright: see
-the Safety section of the README for that residual-risk distinction.
+[docs/safety.md](docs/safety.md) for that residual-risk distinction.
 
 ## Sending the Prompt
 
@@ -380,7 +380,7 @@ instead.
 
 `init.init.permission_mode` reflects local Agy configuration
 (`~/.gemini/antigravity-cli/settings.json`'s `toolPermission`), not anything
-the plugin controls; see the Safety section of the README for the residual
+the plugin controls; see [docs/safety.md](docs/safety.md) for the residual
 risk this implies.
 
 ## Parsing Backend Responses
@@ -536,6 +536,182 @@ vim.bo[buffer].readonly = true
 The buffer passed to this function is the newly created `[English Polish]`
 buffer, never the source document. The plugin therefore has no code path that
 automatically replaces or applies changes to the original text.
+
+## Settings Menu
+
+`:EnPfrConfig` can also be bound to a normal-mode key via the
+`config_keymap` setup option, mirroring how `keymap` binds the visual-mode
+`:EnPfr` mapping. `M.setup()` tracks the currently bound key in the
+module-local `configured_config_keymap` upvalue (parallel to
+`configured_keymap`) and removes it via `pcall(vim.keymap.del, "n", ...)`
+before recomputing `config`, so calling `setup()` again with a different (or
+no) `config_keymap` never leaves a stale binding behind. Unlike `keymap`, it
+has no non-empty default — the mapping only exists if the user opts in.
+
+`lua/enpfr/config_ui.lua` implements `:EnPfrConfig` as a loop of picker
+calls into `lua/enpfr/float_ui.lua`. Each leaf action (picking a backend,
+picking a model, resetting to defaults) re-invokes `M.open()` afterward, so
+the menu behaves like a persistent settings session instead of a one-shot
+picker. The top-level menu builds an explicit array of `{label, action}`
+entries and dispatches on the index the picker returns, rather than
+deriving an action from the selected label text or position math tied to
+backend ordering.
+
+### Floating-Window Picker
+
+`float_ui.lua` implements its own centered floating windows instead of
+delegating to `vim.ui.select`/`vim.ui.input`, so the menu always renders the
+same way regardless of what (if anything) the user's config has overridden
+those globals with:
+
+- `M.select(items, opts, on_choice)` opens a bordered, centered
+  `nvim_open_win` floating window over a read-only scratch buffer, one item
+  per line. Moving the selection is ordinary Normal-mode cursor movement
+  (`j`/`k`, arrow keys) — nothing extra to wire up. `<CR>` (or a double
+  left-click) reads `nvim_win_get_cursor()` and confirms the item on that
+  line; `q`, `<Esc>`, or a `BufLeave` autocommand all cancel with
+  `on_choice(nil)`. A `finished` guard makes `on_choice` fire exactly once
+  even though multiple triggers (an explicit cancel key *and* the
+  `BufLeave` that firing `nvim_win_close` itself causes) can all reach the
+  close path.
+- `M.input(opts, on_confirm)` opens a single-line floating scratch buffer
+  and enters Insert mode by feeding the `A` key directly via
+  `nvim_feedkeys(..., "n", false)` rather than calling `:startinsert` —
+  `:startinsert` only takes effect on Neovim's next main-loop tick, which
+  never arrives inside a script driven end-to-end (e.g. a headless `-l
+  script.lua` test run), leaving the window stuck in Normal mode. Feeding
+  the key directly enters Insert mode synchronously, both interactively and
+  under test. `<CR>` confirms the line's text (an empty line counts as
+  cancelled, matching `vim.ui.input()`'s nil-on-cancel convention); `<Esc>`
+  or `BufLeave` cancels.
+
+Both windows use `style = "minimal"` and `border = "rounded"`, and set no
+highlight groups of their own — Neovim's `FloatBorder`/`FloatTitle`/
+`NormalFloat` highlights already come from the active colorscheme, so the
+menu matches light and dark themes without any extra work here.
+
+### Two-Tier Model Discovery
+
+Model listing is encapsulated behind `backends.fetch_models(name, on_done)`
+in `lua/enpfr/backends.lua`, so `config_ui.lua` never needs to know which
+tier a backend is in — `on_done` always receives a plain array of
+model-name strings, asynchronously, regardless of backend:
+
+- **Live**: OpenCode (`opencode models`) and Agy (`agy models`) support a
+  read-only listing subcommand that prints one model per line. `fetch_models`
+  runs it via `vim.fn.jobstart` with `stdout_buffered = true` — no stdin, no
+  cwd isolation, and none of `start_request()`'s byte-budget machinery,
+  because this is a fixed, read-only command with no untrusted user text to
+  sandbox. `backends.parse_model_list(name, output)` then does the
+  backend-specific line parsing: OpenCode's lines are already the full
+  `provider/model` string the plugin's `--model` flag expects; Agy's lines
+  are `<model-id>\t<description>`, and only the id before the tab is kept.
+- **Static fallback**: Claude and Codex expose no listing mechanism as of
+  this writing (both have open, unimplemented upstream feature requests for
+  one, confirmed by checking `claude --help`/`codex --help` directly).
+  `fetch_models` returns `backends.known_models(name)` instead — a small,
+  explicitly non-authoritative list that can drift from what an account
+  actually has access to — deferred through `vim.schedule` so the callback
+  fires asynchronously the same way the live-listing path does. The settings
+  menu always offers "[Enter manually]" as an escape hatch for exactly this
+  case.
+
+### Assumed Default Model Display
+
+Every backend row in the menu shows the model that will actually be used —
+either the configured value, or, when nothing is configured, an assumed
+default rendered as `<model-name> (default)`. `backends.default_model(name,
+on_done)` resolves that name, again always asynchronously:
+
+- Claude/Codex: the first entry of `backends.known_models(name)` (the same
+  static list `fetch_models` falls back to).
+- Agy: a hardcoded constant (`gemini-3.8-flash-medium`), not derived from
+  `agy models` at all — Agy's live list has no field marking any entry as
+  the account's actual default, so treating "first returned line" as
+  meaningful would be arbitrary in a way the other three cases are not. This
+  constant matches what a real Agy installation's own
+  `~/.gemini/antigravity-cli/settings.json` reported as its `model` field at
+  the time this was written; it is not re-derived from that file (there is
+  no portable way to read one user's private Agy config from here), so it
+  can drift from any individual account's real configured default.
+- OpenCode: the first entry of a live `opencode models` fetch, reusing
+  `fetch_models("opencode", ...)` internally. Because this is the one case
+  requiring a real subprocess call, `backends.default_model()` itself caches
+  the resolved name for the rest of the Neovim session
+  (`backends.clear_default_cache()` forces a fresh lookup) — both
+  `config_ui.lua` (which re-renders the menu after every action) and
+  `init.lua` (see below, which resolves this on every `:EnPfr` invocation
+  that has no configured model) would otherwise re-run `opencode models`
+  far more often than the account's available models actually change.
+
+None of this is authoritative: it is a best-effort label for what the CLI
+is likely to use, never passed as `--model` itself. The model picker's
+"[Use CLI default]" entry shows the same resolved name and, when chosen,
+clears the configured model back to `nil` rather than pinning it to the
+displayed name — so if the real CLI default differs from what was shown,
+behavior still matches the CLI's actual default, only the label could be
+briefly stale.
+
+`start_request()` in `lua/enpfr/init.lua` shows the same assumed default in
+the "Polishing with ..." status line, not just the settings menu: when
+`model` is nil, it writes the plain `"Polishing with " .. backend .. "..."`
+line immediately for instant feedback, then calls
+`backends.default_model(backend, set_status)` and rewrites the same line to
+include `(model-name)` once that resolves. `set_status()` is guarded by both
+`state.finalized` and `current_request == request_id`, so a resolution that
+arrives after the request has already finished, been cancelled, timed out,
+or been superseded by a newer request is silently dropped rather than
+clobbering whatever the buffer already shows — every early-return error path
+in `start_request()` (executable missing, working-directory creation
+failure, `jobstart` failure) sets `state.finalized = true` before returning
+specifically so this guard covers them too, not just the normal
+success/failure paths inside `finalize()`.
+
+`build_menu()` in `config_ui.lua` resolves all four rows' labels through
+one pending-counter join before calling `on_ready(entries)`. This join has
+one correctness subtlety worth calling out: a cache-hit backend resolves
+its `cached_default_model()` callback *synchronously*, inline, while the
+loop is still registering the remaining backends. Naively finalizing the
+moment `pending` reaches zero would fire too early in that case — the loop
+hasn't gotten to the other backends yet, so their `model_labels` entries
+would still be `nil` when `finalize()` reads them. A `registering` flag
+guards against this: `finalize()` may only run once the registration loop
+itself has fully completed, regardless of how many callbacks already fired
+synchronously during it.
+
+### Persisted Settings
+
+`lua/enpfr/init.lua` exposes `get_config()`, `set_backend(name)`,
+`set_model(name, model)`, and `reset_settings()` as narrow mutations of the
+existing module-local `config` table, deliberately bypassing `setup()`'s
+validation and command/keymap re-registration path — calling `setup()` again
+to change one field would otherwise reset every other field (like `keymap`
+or the timeout options) back to `defaults`, since `setup()` always rebuilds
+`config` from `defaults` plus its `options` argument.
+
+`set_backend`/`set_model` write `{backend, models}` to
+`stdpath("data")/enpfr_settings.json` after every change. `setup()` reads
+that file back in with this merge precedence:
+
+```lua
+config = vim.tbl_deep_extend(
+  "force",
+  vim.deepcopy(defaults),
+  load_persisted_state(),
+  options or {}
+)
+```
+
+Built-in defaults lose to the persisted file, which in turn loses to
+whatever the caller explicitly passes to `setup({...})`. This means a value
+the user's own config sets explicitly is always predictable and never
+silently overridden by a stale menu choice from a previous session, while a
+field the user's `setup()` call doesn't mention picks up whatever the menu
+last saved. Reading a missing or corrupt settings file is treated as `{}`
+(via `pcall` around both the file read and the JSON decode) rather than
+raising an error, and writing is similarly wrapped in `pcall` so a read-only
+filesystem degrades to "the menu works for this session only" instead of
+breaking `setup()` or the polishing request path.
 
 ## Error Handling
 

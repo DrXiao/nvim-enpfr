@@ -172,3 +172,171 @@ test("disables all OpenCode tools through inline configuration", function()
   eq(false, inline_config.tools.bash)
   eq("disabled", inline_config.share)
 end)
+
+test("returns the live model-list command for opencode and agy", function()
+  eq({ "opencode", "models" }, backends.model_list_command("opencode"))
+  eq({ "agy", "models" }, backends.model_list_command("agy"))
+end)
+
+test("returns no live model-list command for claude and codex", function()
+  eq(nil, backends.model_list_command("claude"))
+  eq(nil, backends.model_list_command("codex"))
+end)
+
+test("parses one opencode model per line", function()
+  local output = "opencode/big-pickle\nopenai/gpt-5.4\nopenai/gpt-5.4-mini\n"
+  eq(
+    { "opencode/big-pickle", "openai/gpt-5.4", "openai/gpt-5.4-mini" },
+    backends.parse_model_list("opencode", output)
+  )
+end)
+
+test("parses only the model id from tab-separated agy output", function()
+  local output = "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n"
+    .. "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n"
+  eq(
+    { "gemini-3.8-flash-high", "claude-sonnet-4-6" },
+    backends.parse_model_list("agy", output)
+  )
+end)
+
+test("returns an empty model list instead of erroring on blank output", function()
+  eq({}, backends.parse_model_list("opencode", ""))
+  eq({}, backends.parse_model_list("agy", ""))
+end)
+
+test("known_models returns a small static list only for claude and codex", function()
+  assert(#backends.known_models("claude") > 0)
+  assert(#backends.known_models("codex") > 0)
+  eq({}, backends.known_models("opencode"))
+  eq({}, backends.known_models("agy"))
+end)
+
+test("fetch_models runs the live command for opencode", function()
+  local original_jobstart = vim.fn.jobstart
+  vim.fn.jobstart = function(command, options)
+    eq({ "opencode", "models" }, command)
+    options.on_stdout(nil, { "opencode/big-pickle", "openai/gpt-5.4" })
+    options.on_exit(nil, 0)
+    return 1
+  end
+
+  local result
+  backends.fetch_models("opencode", function(models)
+    result = models
+  end)
+
+  vim.fn.jobstart = original_jobstart
+  eq({ "opencode/big-pickle", "openai/gpt-5.4" }, result)
+end)
+
+test("fetch_models returns an empty list when the live command exits non-zero", function()
+  local original_jobstart = vim.fn.jobstart
+  vim.fn.jobstart = function(_, options)
+    options.on_exit(nil, 1)
+    return 1
+  end
+
+  local result
+  backends.fetch_models("agy", function(models)
+    result = models
+  end)
+
+  vim.fn.jobstart = original_jobstart
+  eq({}, result)
+end)
+
+test("fetch_models falls back to the static list for claude without spawning a job", function()
+  local original_jobstart = vim.fn.jobstart
+  local spawned = false
+  vim.fn.jobstart = function()
+    spawned = true
+    return 1
+  end
+
+  local result
+  backends.fetch_models("claude", function(models)
+    result = models
+  end)
+  vim.wait(100, function()
+    return result ~= nil
+  end)
+
+  vim.fn.jobstart = original_jobstart
+  eq(false, spawned)
+  eq(backends.known_models("claude"), result)
+end)
+
+test("default_model uses the first known model for claude and codex", function()
+  local claude_result, codex_result
+  backends.default_model("claude", function(model) claude_result = model end)
+  backends.default_model("codex", function(model) codex_result = model end)
+  vim.wait(100, function()
+    return claude_result ~= nil and codex_result ~= nil
+  end)
+
+  eq("haiku", claude_result)
+  eq("gpt-5.6-luna", codex_result)
+end)
+
+test("default_model uses a hardcoded model for agy without spawning a job", function()
+  local original_jobstart = vim.fn.jobstart
+  local spawned = false
+  vim.fn.jobstart = function()
+    spawned = true
+    return 1
+  end
+
+  local result
+  backends.default_model("agy", function(model)
+    result = model
+  end)
+  vim.wait(100, function()
+    return result ~= nil
+  end)
+
+  vim.fn.jobstart = original_jobstart
+  eq(false, spawned)
+  eq("gemini-3.8-flash-medium", result)
+end)
+
+test("default_model uses the first live-fetched model for opencode", function()
+  local original_jobstart = vim.fn.jobstart
+  vim.fn.jobstart = function(command, options)
+    eq({ "opencode", "models" }, command)
+    options.on_stdout(nil, { "opencode/big-pickle", "openai/gpt-5.4" })
+    options.on_exit(nil, 0)
+    return 1
+  end
+
+  local result
+  backends.default_model("opencode", function(model)
+    result = model
+  end)
+
+  vim.fn.jobstart = original_jobstart
+  eq("opencode/big-pickle", result)
+end)
+
+test("default_model caches opencode's result instead of re-fetching", function()
+  backends.clear_default_cache()
+  local original_jobstart = vim.fn.jobstart
+  local calls = 0
+  vim.fn.jobstart = function(_, options)
+    calls = calls + 1
+    options.on_stdout(nil, { "opencode/big-pickle" })
+    options.on_exit(nil, 0)
+    return 1
+  end
+
+  local first, second
+  backends.default_model("opencode", function(model) first = model end)
+  backends.default_model("opencode", function(model) second = model end)
+
+  vim.fn.jobstart = original_jobstart
+  eq(1, calls)
+  eq("opencode/big-pickle", first)
+  eq("opencode/big-pickle", second)
+
+  backends.clear_default_cache()
+end)

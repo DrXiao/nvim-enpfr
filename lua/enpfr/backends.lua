@@ -219,4 +219,135 @@ function M.names()
   return { "claude", "codex", "opencode", "agy" }
 end
 
+local model_list_commands = {
+  opencode = { "opencode", "models" },
+  agy = { "agy", "models" },
+}
+
+-- Best-effort static fallback for backends with no listing subcommand today.
+-- Neither claude nor codex expose one (verified against `claude --help` /
+-- `codex --help`; both have open, unimplemented upstream feature requests
+-- for it). Not authoritative and may drift from what an account can
+-- actually use; the settings menu always keeps a manual-entry escape hatch.
+local known_models = {
+  claude = { "haiku", "sonnet", "opus", "fable" },
+  codex = { "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol" },
+}
+
+function M.model_list_command(name)
+  check_backend(name)
+  return model_list_commands[name]
+end
+
+function M.known_models(name)
+  check_backend(name)
+  return known_models[name] or {}
+end
+
+function M.parse_model_list(name, output)
+  check_backend(name)
+  local models = {}
+  if name == "opencode" then
+    for line in output:gmatch("[^\r\n]+") do
+      local trimmed = line:match("^%s*(.-)%s*$")
+      if trimmed ~= "" then
+        models[#models + 1] = trimmed
+      end
+    end
+  elseif name == "agy" then
+    for line in output:gmatch("[^\r\n]+") do
+      local id = line:match("^%s*([^\t]+)")
+      if id and id ~= "" then
+        models[#models + 1] = id
+      end
+    end
+  end
+  return models
+end
+
+-- Single entry point for callers: regardless of whether a backend supports
+-- live listing, on_done is always invoked asynchronously with a plain array
+-- of model-name strings, so callers never need to branch on backend tier.
+function M.fetch_models(name, on_done)
+  check_backend(name)
+  local command = model_list_commands[name]
+  if not command then
+    vim.schedule(function()
+      on_done(known_models[name] or {})
+    end)
+    return
+  end
+
+  local stdout = {}
+  vim.fn.jobstart(command, {
+    stdout_buffered = true,
+    on_stdout = function(_, data)
+      stdout = data
+    end,
+    on_exit = function(_, exit_code)
+      if exit_code ~= 0 then
+        on_done({})
+        return
+      end
+      on_done(M.parse_model_list(name, table.concat(stdout, "\n")))
+    end,
+  })
+end
+
+-- Agy has no listing subcommand result to lean on for "which model is the
+-- default" the way opencode's live list does, and it has no known_models
+-- fallback list either (fetch_models("agy", ...) always hits the live
+-- `agy models` command). This is the account's actual default model on the
+-- machine this was verified against (~/.gemini/antigravity-cli/settings.json
+-- -> "model": "Gemini 3.8 Flash (Medium)"), hardcoded because there is no
+-- portable, general way to read a user's own Agy config from here.
+local AGY_DEFAULT_MODEL = "gemini-3.8-flash-medium"
+
+local function resolve_default_model(name, on_done)
+  if name == "agy" then
+    vim.schedule(function()
+      on_done(AGY_DEFAULT_MODEL)
+    end)
+    return
+  end
+  if name == "opencode" then
+    M.fetch_models("opencode", function(models)
+      on_done(models[1])
+    end)
+    return
+  end
+  vim.schedule(function()
+    on_done((known_models[name] or {})[1])
+  end)
+end
+
+-- Caches the resolved default per backend for the life of this Neovim
+-- session. Only opencode's answer costs a real subprocess call (a fresh
+-- `opencode models` run); callers that need this on every polish request
+-- (init.lua, to label "Polishing with ..." when no model is configured) and
+-- every settings-menu render (config_ui.lua) would otherwise re-run it just
+-- to redraw one line of text. Call M.clear_default_cache() to force a fresh
+-- lookup (e.g. after the account's available models actually changed).
+local default_model_cache = {}
+
+-- The model name a backend uses when no model is configured, for display
+-- purposes only (it is never passed as --model; the CLI's own default still
+-- applies). Always asynchronous via on_done, matching fetch_models, since
+-- opencode's answer requires an actual subprocess call the first time.
+function M.default_model(name, on_done)
+  check_backend(name)
+  if default_model_cache[name] ~= nil then
+    on_done(default_model_cache[name] or nil)
+    return
+  end
+  resolve_default_model(name, function(model_name)
+    default_model_cache[name] = model_name or false
+    on_done(model_name)
+  end)
+end
+
+function M.clear_default_cache()
+  default_model_cache = {}
+end
+
 return M
