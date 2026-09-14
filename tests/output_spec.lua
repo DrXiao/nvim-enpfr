@@ -122,6 +122,32 @@ test("opens without hanging when the source buffer has a file name", function()
   vim.fn.delete(path)
 end)
 
+test("highlights word-level differences when given the original text", function()
+  local source_window = fresh_source()
+  local result = output.open(source_window, "text")
+
+  output.set_text(result.buffer, "Hello there.", "Hello world.")
+
+  local ns = vim.api.nvim_create_namespace("enpfr_diff")
+  local marks = vim.api.nvim_buf_get_extmarks(result.buffer, ns, 0, -1, { details = true })
+  eq(1, #marks)
+  eq(0, marks[1][2])
+  eq(6, marks[1][3])
+  eq(12, marks[1][4].end_col)
+  eq("EnPfrDiffChanged", marks[1][4].hl_group)
+end)
+
+test("clears stale diff highlights on the next update with no original text", function()
+  local source_window = fresh_source()
+  local result = output.open(source_window, "text")
+  output.set_text(result.buffer, "Hello there.", "Hello world.")
+
+  output.set_text(result.buffer, "Polishing...")
+
+  local ns = vim.api.nvim_create_namespace("enpfr_diff")
+  eq({}, vim.api.nvim_buf_get_extmarks(result.buffer, ns, 0, -1, {}))
+end)
+
 test("falls back to the next number when the base name is taken", function()
   local source_window = fresh_source()
   local taken = vim.api.nvim_create_buf(false, true)

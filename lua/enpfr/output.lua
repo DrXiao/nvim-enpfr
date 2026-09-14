@@ -1,8 +1,32 @@
+local diff = require("enpfr.diff")
+
 local M = {}
 local outputs = {}
 
 local NAME_BASE = "[English Polish]"
 local MAX_NAME_ATTEMPTS = 99
+local DIFF_HIGHLIGHT_GROUP = "EnPfrDiffChanged"
+local diff_namespace = vim.api.nvim_create_namespace("enpfr_diff")
+
+-- Linked to DiagnosticWarn rather than a DiffText/DiffAdd-style group:
+-- those highlight the background, but a changed word here should only
+-- recolor its characters so the surrounding text stays visually
+-- undisturbed. DiagnosticWarn is foreground-only and, unlike Added/Changed/
+-- Removed, guaranteed to exist in every Neovim version this plugin
+-- supports. `default = true` only takes effect where the active
+-- colorscheme hasn't already defined this group, so a user's own
+-- `:highlight EnPfrDiffChanged` always wins. Colorscheme changes reset
+-- highlight groups, so the default has to be reapplied on every
+-- ColorScheme event to survive one.
+local function define_diff_highlight()
+  vim.api.nvim_set_hl(0, DIFF_HIGHLIGHT_GROUP, { link = "DiagnosticWarn", default = true })
+end
+
+define_diff_highlight()
+vim.api.nvim_create_autocmd("ColorScheme", {
+  group = vim.api.nvim_create_augroup("enpfr_diff_highlight", { clear = true }),
+  callback = define_diff_highlight,
+})
 
 -- Name the buffer without ever querying the buffer list for the name first.
 -- vim.fn.bufnr() treats its string argument as a Vim pattern, and "[English
@@ -85,7 +109,12 @@ function M.open(source_window, filetype)
   return current
 end
 
-function M.set_text(buffer, text)
+-- `original`, when given, is the pre-polish source text: the parts of `text`
+-- that differ from it (at word granularity) are recolored with
+-- DIFF_HIGHLIGHT_GROUP so the user can see at a glance what the backend
+-- actually changed. Omit it for status/error text, where no such comparison
+-- applies.
+function M.set_text(buffer, text, original)
   if not vim.api.nvim_buf_is_valid(buffer) then
     return false
   end
@@ -96,6 +125,16 @@ function M.set_text(buffer, text)
   vim.api.nvim_buf_set_lines(buffer, 0, -1, false, lines)
   vim.bo[buffer].modifiable = false
   vim.bo[buffer].readonly = true
+
+  vim.api.nvim_buf_clear_namespace(buffer, diff_namespace, 0, -1)
+  if original then
+    for _, range in ipairs(diff.changed_ranges(original, text)) do
+      vim.api.nvim_buf_set_extmark(buffer, diff_namespace, range.row, range.start_col, {
+        end_col = range.end_col,
+        hl_group = DIFF_HIGHLIGHT_GROUP,
+      })
+    end
+  end
   return true
 end
 

@@ -235,7 +235,7 @@ local function start_request(text, backend, model, source_window, filetype)
       notify(parse_error, vim.log.levels.ERROR)
       return
     end
-    output.set_text(destination.buffer, revised)
+    output.set_text(destination.buffer, revised, text)
   end
 
   local job_options = {
