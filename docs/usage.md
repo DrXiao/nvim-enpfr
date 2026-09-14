@@ -4,7 +4,12 @@
 2. Press `<leader>enpfr` to use the configured backend and model. If your
    `init.lua` never sets `vim.g.mapleader`, this defaults to `\enpfr`.
 3. Compare the revised text in the read-only split on the right with the
-   unchanged source on the left.
+   unchanged source on the left. Words the backend actually changed have
+   their text recolored (`EnPfrDiffChanged`, linked to `DiagnosticWarn` by
+   default) so you can spot at a glance what was wrong with your original
+   wording. Override the highlight with your own
+   `:highlight EnPfrDiffChanged ...` if you want a different color than your
+   colorscheme's `DiagnosticWarn`.
 
 You can select a backend and model for an individual request from the visual
 command line:
