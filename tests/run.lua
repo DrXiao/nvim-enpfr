@@ -25,6 +25,7 @@ function _G.eq(expected, actual)
 end
 
 dofile("tests/selection_spec.lua")
+dofile("tests/diff_spec.lua")
 dofile("tests/backends_spec.lua")
 dofile("tests/float_ui_spec.lua")
 dofile("tests/config_ui_spec.lua")
