@@ -109,17 +109,32 @@ function M.open(source_window, filetype)
   return current
 end
 
+local EXPLANATION_DIVIDER = string.rep("-", 40)
+local EXPLANATION_HEADER = "Why this was changed:"
+
 -- `original`, when given, is the pre-polish source text: the parts of `text`
 -- that differ from it (at word granularity) are recolored with
 -- DIFF_HIGHLIGHT_GROUP so the user can see at a glance what the backend
 -- actually changed. Omit it for status/error text, where no such comparison
 -- applies.
-function M.set_text(buffer, text, original)
+--
+-- `explanation`, when given (CS expert mode), is appended below `text`
+-- behind a divider. It is appended after the diff below is computed against
+-- `text` alone, so its prose is never mistaken for a change.
+function M.set_text(buffer, text, original, explanation)
   if not vim.api.nvim_buf_is_valid(buffer) then
     return false
   end
 
   local lines = vim.split(text, "\n", { plain = true })
+  if explanation and explanation ~= "" then
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = EXPLANATION_DIVIDER
+    lines[#lines + 1] = EXPLANATION_HEADER
+    lines[#lines + 1] = ""
+    vim.list_extend(lines, vim.split(explanation, "\n", { plain = true }))
+  end
+
   vim.bo[buffer].readonly = false
   vim.bo[buffer].modifiable = true
   vim.api.nvim_buf_set_lines(buffer, 0, -1, false, lines)
