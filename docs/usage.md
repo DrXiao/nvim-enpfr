@@ -29,6 +29,27 @@ The output split's status line always names the model in use, even if you
 never configured one — `:EnPfr claude` with no configured model shows
 "Polishing with claude (haiku)..." rather than leaving the model out.
 
+## Modes
+
+- **General** (the default) is the plain copy-editing behavior described
+  above.
+- **CS expert** does the same copy-editing pass, but with the model acting as
+  a senior computer science expert (a senior software engineer, a senior
+  embedded-systems engineer, or similar — not limited to any one specialty).
+  When at least one edit reflects that expertise (technical terminology, a
+  naming convention, a technically inaccurate statement, and the like), it
+  adds a "Why this was changed:" section below the revised text, as a
+  bulleted list covering only those CS-specific reasons. A request whose
+  only changes are plain grammar/style fixes with no CS-specific reasoning
+  gets no explanation section at all. That section, when present, is plain
+  prose and is never diff-highlighted itself — only the revised text above
+  it is.
+
+`:EnPfr` and `keymap` always use the configured default mode (`mode` in
+`setup()`, or whatever the [settings menu](#settings-menu) last saved). There
+is no per-request mode override — set the default mode there before running
+`:EnPfr` if you want to switch modes for a request.
+
 Cancel an active request with:
 
 ```vim
@@ -41,9 +62,12 @@ output window is reused within the current tab.
 ## Settings menu
 
 Run `:EnPfrConfig`, or press the key set in `config_keymap` (e.g. `<F9>`),
-to open a centered floating-window menu for setting the
-default backend, setting each backend's default model, and picking a model
-from a list instead of typing one from memory. Move with `j`/`k` or the
+to open a centered floating-window menu for setting the default mode
+([general or CS expert](#modes)), the default backend, each backend's
+default model, and picking a model from a list instead of typing one from
+memory. Divider lines group the menu into three sections in order: the
+default mode, the backend/model settings, and the reset/close actions at
+the bottom. Move with `j`/`k` or the
 arrow keys, `<CR>` to confirm the highlighted line, and `q`/`<Esc>` to cancel
 and go back. Model listing is live for `opencode` (`opencode models`) and
 `agy` (`agy models`); `claude` and `codex` currently expose no such
@@ -66,8 +90,8 @@ back to it.
 Changes made through this menu are written to
 `stdpath("data")/enpfr_settings.json` and are loaded again the next time
 `setup()` runs, so they survive restarting Neovim. If your own config's
-`setup({...})` call explicitly sets `backend` or a `models` entry, that
-explicit value always wins over whatever the menu last saved. Use "Reset all
+`setup({...})` call explicitly sets `mode`, `backend`, or a `models` entry,
+that explicit value always wins over whatever the menu last saved. Use "Reset all
 settings to defaults" in the menu to delete the persisted file and go back to
 the plugin's built-in defaults.
 

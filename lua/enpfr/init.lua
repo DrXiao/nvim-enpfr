@@ -5,6 +5,12 @@ local selection = require("enpfr.selection")
 
 local M = {}
 
+local MODES = { "general", "cs_expert" }
+local MODE_LABELS = {
+  general = "General",
+  cs_expert = "CS expert",
+}
+
 local defaults = {
   backend = "claude",
   models = {
@@ -13,6 +19,7 @@ local defaults = {
     opencode = nil,
     agy = nil,
   },
+  mode = "general",
   keymap = "<leader>enpfr",
   config_keymap = nil,
   max_input_bytes = 50000,
@@ -56,6 +63,15 @@ local function is_supported(name)
   return false
 end
 
+local function is_supported_mode(name)
+  for _, mode in ipairs(MODES) do
+    if mode == name then
+      return true
+    end
+  end
+  return false
+end
+
 local function state_file_path()
   return vim.fn.stdpath("data") .. "/enpfr_settings.json"
 end
@@ -77,7 +93,11 @@ local function load_persisted_state()
 end
 
 local function save_persisted_state()
-  local payload = vim.json.encode({ backend = config.backend, models = config.models })
+  local payload = vim.json.encode({
+    backend = config.backend,
+    models = config.models,
+    mode = config.mode,
+  })
   pcall(vim.fn.writefile, { payload }, state_file_path())
 end
 
@@ -101,9 +121,26 @@ function M.set_model(name, model)
   save_persisted_state()
 end
 
+function M.modes()
+  return { "general", "cs_expert" }
+end
+
+function M.mode_label(name)
+  return MODE_LABELS[name] or name
+end
+
+function M.set_mode(name)
+  if not is_supported_mode(name) then
+    error("Unsupported mode: " .. tostring(name))
+  end
+  config.mode = name
+  save_persisted_state()
+end
+
 function M.reset_settings()
   config.backend = defaults.backend
   config.models = vim.deepcopy(defaults.models)
+  config.mode = defaults.mode
   pcall(vim.fn.delete, state_file_path())
 end
 
@@ -137,7 +174,7 @@ local function format_error(message, stderr)
   return "Request failed\n\n" .. details
 end
 
-local function start_request(text, backend, model, source_window, filetype)
+local function start_request(text, backend, model, source_window, filetype, mode)
   local destination = output.open(source_window, filetype)
   request_id = request_id + 1
   local current_request = request_id
@@ -174,7 +211,8 @@ local function start_request(text, backend, model, source_window, filetype)
       return
     end
     local model_label = display_model and (" (" .. display_model .. ")") or ""
-    output.set_text(destination.buffer, "Polishing with " .. backend .. model_label .. "...")
+    local mode_label = mode == "cs_expert" and (" [" .. M.mode_label(mode) .. "]") or ""
+    output.set_text(destination.buffer, "Polishing with " .. backend .. model_label .. mode_label .. "...")
   end
 
   set_status(model)
@@ -229,13 +267,14 @@ local function start_request(text, backend, model, source_window, filetype)
       return
     end
 
-    local revised, parse_error = backends.parse(backend, table.concat(stdout, "\n"))
-    if not revised then
+    local raw, parse_error = backends.parse(backend, table.concat(stdout, "\n"))
+    if not raw then
       output.set_text(destination.buffer, format_error(parse_error, error_output))
       notify(parse_error, vim.log.levels.ERROR)
       return
     end
-    output.set_text(destination.buffer, revised, text)
+    local revised, explanation = prompt.parse_response(mode, raw)
+    output.set_text(destination.buffer, revised, text, explanation)
   end
 
   local job_options = {
@@ -294,7 +333,7 @@ local function start_request(text, backend, model, source_window, filetype)
     request_id = current_request,
     working_directory = working_directory,
   }
-  vim.fn.chansend(job_id, backends.stdin_payload(backend, prompt.build(text)))
+  vim.fn.chansend(job_id, backends.stdin_payload(backend, prompt.build(text, mode)))
   vim.fn.chanclose(job_id, "stdin")
 
   vim.defer_fn(function()
@@ -339,21 +378,27 @@ local function selection_from_command(command)
   return selection.from_buffer(buffer, mode, first, last)
 end
 
+-- nil means the selection is usable, otherwise the returned string is the
+-- user-facing error to notify().
+local function validate_selection(text)
+  if not text:match("%S") then
+    return "The selected text is empty"
+  end
+  if #text > config.max_input_bytes then
+    return "Selection exceeds " .. config.max_input_bytes .. " bytes"
+  end
+  return nil
+end
+
 function M.polish_visual(command)
   local text, err = selection_from_command(command)
   if not text then
     notify(err, vim.log.levels.ERROR)
     return
   end
-  if not text:match("%S") then
-    notify("The selected text is empty", vim.log.levels.ERROR)
-    return
-  end
-  if #text > config.max_input_bytes then
-    notify(
-      "Selection exceeds " .. config.max_input_bytes .. " bytes",
-      vim.log.levels.ERROR
-    )
+  local validation_error = validate_selection(text)
+  if validation_error then
+    notify(validation_error, vim.log.levels.ERROR)
     return
   end
   if #command.fargs > 2 then
@@ -369,7 +414,7 @@ function M.polish_visual(command)
   local model = command.fargs[2] or config.models[backend]
   local source_window = vim.api.nvim_get_current_win()
   local filetype = vim.bo.filetype
-  start_request(text, backend, model, source_window, filetype)
+  start_request(text, backend, model, source_window, filetype, config.mode)
 end
 
 function M.cancel()
@@ -442,6 +487,9 @@ function M.setup(options)
   )
   if not is_supported(config.backend) then
     error("Unsupported backend: " .. tostring(config.backend))
+  end
+  if not is_supported_mode(config.mode) then
+    error("Unsupported mode: " .. tostring(config.mode))
   end
   if type(config.models) ~= "table" then
     error("models must be a table")

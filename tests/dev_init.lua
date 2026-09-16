@@ -22,11 +22,44 @@ require("enpfr").setup({
 
 vim.cmd("enew")
 vim.bo.buftype = ""
+vim.bo.filetype = "markdown"
 vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+  "## Usage Guide",
+  "- Use visual mode to select text.",
+  "- Press <F8> to perform proofreading on the selected text.",
+  "- Press <F9> to open the settings menu",
+  "  - default mode",
+  "  - AI backend configuration",
+  "    - default backend (e.g.: Claude Code, Codex, OpenCode, Antigravity)",
+  "    - default model for each backend",
+  "  - Press <Esc> to go back to the previous menu or exit the settings menu.",
+  "",
+  "",
+  "## Test case 1",
+  "### Guide",
+  "- Directly select the text below in visual mode and press <F8> to perform",
+  "  proofreading.",
+  "- [Optional] Press <F9> to select the default backend and model for the",
+  "  proofreading task.",
+  "",
+  "### Text",
   "This are a sentence with an error, select me in visual mode and press <F8>.",
   "",
-  "Press <F9> to open the settings menu (default backend, default model,",
-  "and the model picker) instead.",
+  "",
+  "## Test case 2",
+  "### Guide",
+  "- Press <F9> to select \"CS expert\" mode, then select the text below in visual",
+  "  mode and press <F8> to perform proofreading.",
+  "- [Optional] Press <F9> to select the default backend and model for the",
+  "  proofreading task.",
+  "",
+  "### Text",
+  "When multiple thread access a shared variable without no synchronization,",
+  "a race condition can occur, and using a mutex lock help prevent this issue.",
+  "The call back function registered for the interrupt handler also need to",
+  "be re-entrant so it don't corrupt the buffer while running on an embedded",
+  "system with limited memory, and it must not let the fire wall block a",
+  "retry packet that the driver is waiting for.",
 })
 
 vim.notify(

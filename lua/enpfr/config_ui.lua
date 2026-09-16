@@ -2,6 +2,14 @@ local float_ui = require("enpfr.float_ui")
 
 local M = {}
 
+-- Purely cosmetic row used to separate the menu into groups: the
+-- polish-mode setting, the AI backend/model settings, and the
+-- reset/close actions. Selecting it just redraws the menu: float_ui.select
+-- has no concept of a disabled/unselectable row, so a no-op back to
+-- M.open() is the least surprising way to let this line still sit in the
+-- list.
+local DIVIDER = string.rep("-", 20)
+
 local function default_label(model_name)
   return model_name and (model_name .. " (default)") or "<CLI default>"
 end
@@ -27,6 +35,8 @@ local function build_menu(on_ready)
 
   local function finalize()
     local entries = {
+      { label = "Default mode: " .. enpfr.mode_label(config.mode), action = M.pick_mode },
+      { label = DIVIDER, action = M.open },
       { label = "Default backend: " .. config.backend, action = M.pick_backend },
     }
     for _, name in ipairs(names) do
@@ -37,6 +47,7 @@ local function build_menu(on_ready)
         end,
       }
     end
+    entries[#entries + 1] = { label = DIVIDER, action = M.open }
     entries[#entries + 1] = {
       label = "Reset all settings to defaults",
       action = function()
@@ -95,6 +106,17 @@ function M.pick_backend()
     if choice then
       enpfr.set_backend(choice)
       vim.notify("enpfr: default backend set to " .. choice, vim.log.levels.INFO)
+    end
+    M.open()
+  end)
+end
+
+function M.pick_mode()
+  local enpfr = require("enpfr")
+  float_ui.select(enpfr.modes(), { prompt = "Default mode", format_item = enpfr.mode_label }, function(choice)
+    if choice then
+      enpfr.set_mode(choice)
+      vim.notify("enpfr: default mode set to " .. enpfr.mode_label(choice), vim.log.levels.INFO)
     end
     M.open()
   end)

@@ -148,6 +148,36 @@ test("clears stale diff highlights on the next update with no original text", fu
   eq({}, vim.api.nvim_buf_get_extmarks(result.buffer, ns, 0, -1, {}))
 end)
 
+test("appends an explanation section below the revised text without diffing it", function()
+  local source_window = fresh_source()
+  local result = output.open(source_window, "text")
+
+  output.set_text(result.buffer, "Hello there.", "Hello world.", "Swapped the greeting's object.")
+
+  eq({
+    "Hello there.",
+    "",
+    string.rep("-", 40),
+    "Why this was changed:",
+    "",
+    "Swapped the greeting's object.",
+  }, vim.api.nvim_buf_get_lines(result.buffer, 0, -1, false))
+
+  local ns = vim.api.nvim_create_namespace("enpfr_diff")
+  local marks = vim.api.nvim_buf_get_extmarks(result.buffer, ns, 0, -1, {})
+  eq(1, #marks)
+  eq(0, marks[1][2])
+end)
+
+test("omits the explanation section when none is given", function()
+  local source_window = fresh_source()
+  local result = output.open(source_window, "text")
+
+  output.set_text(result.buffer, "Hello there.", "Hello world.")
+
+  eq({ "Hello there." }, vim.api.nvim_buf_get_lines(result.buffer, 0, -1, false))
+end)
+
 test("falls back to the next number when the base name is taken", function()
   local source_window = fresh_source()
   local taken = vim.api.nvim_create_buf(false, true)

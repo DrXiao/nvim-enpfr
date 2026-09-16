@@ -13,6 +13,12 @@ require("enpfr").setup({
     agy = "gemini-3.8-flash-high",
   },
 
+  -- Default mode used by :EnPfr / keymap: "general" (plain copy-editing) or
+  -- "cs_expert" (adds a "why this was changed" explanation from a senior
+  -- CS expert's perspective). Changeable from :EnPfrConfig too. See
+  -- docs/usage.md#modes.
+  mode = "general",
+
   -- Visual-mode mapping. Use false to disable it.
   keymap = "<leader>enpfr",
 

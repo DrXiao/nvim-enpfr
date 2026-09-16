@@ -212,9 +212,9 @@ test("the CLI default entry names agy's hardcoded default model", function()
   assert(ok, err)
 end)
 
-test("reset_settings restores backend and models to defaults", function()
+test("reset_settings restores backend, models, and mode to defaults", function()
   local ok, err = pcall(function()
-    translator.setup({ keymap = false, backend = "codex", models = { codex = "gpt-5.4" } })
+    translator.setup({ keymap = false, backend = "codex", models = { codex = "gpt-5.4" }, mode = "cs_expert" })
 
     translator.reset_settings()
 
@@ -222,8 +222,29 @@ test("reset_settings restores backend and models to defaults", function()
     eq("claude", config.backend)
     eq(nil, config.models.claude)
     eq(nil, config.models.codex)
+    eq("general", config.mode)
   end)
 
+  translator.reset_settings()
+  assert(ok, err)
+end)
+
+test("selecting a mode from the picker updates the live config", function()
+  local original_select = float_ui.select
+
+  local ok, err = pcall(function()
+    require("enpfr.backends").clear_default_cache()
+    translator.setup({ keymap = false })
+    float_ui.select = function(items, _, on_choice)
+      on_choice(items[2], 2)
+    end
+
+    config_ui.pick_mode()
+
+    eq("cs_expert", translator.get_config().mode)
+  end)
+
+  float_ui.select = original_select
   translator.reset_settings()
   assert(ok, err)
 end)
@@ -245,11 +266,78 @@ test("the top-level menu shows assumed defaults for unconfigured backends", func
       return labels ~= nil
     end)
 
-    eq("Default backend: claude", labels[1])
-    eq("Model for claude: haiku (default)", labels[2])
-    eq("Model for codex: gpt-5.6-luna (default)", labels[3])
-    eq("Model for opencode: opencode/big-pickle (default)", labels[4])
-    eq("Model for agy: gemini-3.8-flash-medium (default)", labels[5])
+    local divider = string.rep("-", 20)
+    eq("Default mode: General", labels[1])
+    eq(divider, labels[2])
+    eq("Default backend: claude", labels[3])
+    eq("Model for claude: haiku (default)", labels[4])
+    eq("Model for codex: gpt-5.6-luna (default)", labels[5])
+    eq("Model for opencode: opencode/big-pickle (default)", labels[6])
+    eq("Model for agy: gemini-3.8-flash-medium (default)", labels[7])
+    eq(divider, labels[8])
+    eq("Reset all settings to defaults", labels[9])
+    eq("Close", labels[10])
+  end)
+
+  float_ui.select = original_select
+  translator.reset_settings()
+  assert(ok, err)
+end)
+
+test("the divider row before reset/close is inert", function()
+  local original_select = float_ui.select
+
+  local ok, err = pcall(function()
+    require("enpfr.backends").clear_default_cache()
+    translator.setup({ keymap = false })
+    local calls = 0
+    float_ui.select = function(items, _, on_choice)
+      calls = calls + 1
+      if calls == 1 then
+        on_choice(items[8], 8)
+      else
+        on_choice(nil)
+      end
+    end
+
+    config_ui.open()
+    vim.wait(200, function()
+      return calls >= 2
+    end)
+
+    eq("claude", translator.get_config().backend)
+    assert(calls >= 2, "selecting the divider did not redraw the menu")
+  end)
+
+  float_ui.select = original_select
+  translator.reset_settings()
+  assert(ok, err)
+end)
+
+test("the divider row between mode and backend settings is inert", function()
+  local original_select = float_ui.select
+
+  local ok, err = pcall(function()
+    require("enpfr.backends").clear_default_cache()
+    translator.setup({ keymap = false })
+    local calls = 0
+    float_ui.select = function(items, _, on_choice)
+      calls = calls + 1
+      if calls == 1 then
+        on_choice(items[2], 2)
+      else
+        on_choice(nil)
+      end
+    end
+
+    config_ui.open()
+    vim.wait(200, function()
+      return calls >= 2
+    end)
+
+    eq("general", translator.get_config().mode)
+    eq("claude", translator.get_config().backend)
+    assert(calls >= 2, "selecting the divider did not redraw the menu")
   end)
 
   float_ui.select = original_select
@@ -274,7 +362,7 @@ test("the top-level menu shows a configured model plainly, without a default suf
       return labels ~= nil
     end)
 
-    eq("Model for claude: opus", labels[2])
+    eq("Model for claude: opus", labels[4])
   end)
 
   float_ui.select = original_select
