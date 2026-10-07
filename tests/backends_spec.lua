@@ -247,6 +247,65 @@ test("fetch_models returns an empty list when the live command exits non-zero", 
   eq({}, result)
 end)
 
+test("fetch_models stops a hung list command after the timeout with an empty list", function()
+  local original_jobstart = vim.fn.jobstart
+  local original_jobstop = vim.fn.jobstop
+  local original_defer_fn = vim.defer_fn
+  local stopped
+  local timeout_callback
+  vim.fn.jobstart = function(_, _)
+    return 1 -- a stuck CLI: on_exit is never called
+  end
+  vim.fn.jobstop = function(job_id)
+    stopped = job_id
+  end
+  vim.defer_fn = function(fn, delay)
+    timeout_callback = { fn = fn, delay = delay }
+  end
+
+  local calls = 0
+  local result
+  backends.fetch_models("opencode", function(models)
+    calls = calls + 1
+    result = models
+  end, 100)
+
+  eq(nil, result)
+  eq(100, timeout_callback.delay)
+
+  timeout_callback.fn()
+  eq(1, stopped)
+  eq({}, result)
+  eq(1, calls)
+
+  -- The killed job's on_exit (and any repeat invocation) must not double-deliver.
+  timeout_callback.fn()
+  eq(1, calls)
+
+  vim.defer_fn = original_defer_fn
+  vim.fn.jobstop = original_jobstop
+  vim.fn.jobstart = original_jobstart
+end)
+
+test("fetch_models applies a default deadline when none is given", function()
+  local original_jobstart = vim.fn.jobstart
+  local original_defer_fn = vim.defer_fn
+  local timeout_callback
+  vim.fn.jobstart = function(_, _)
+    return 1
+  end
+  vim.defer_fn = function(fn, delay)
+    timeout_callback = { fn = fn, delay = delay }
+  end
+
+  backends.fetch_models("opencode", function() end)
+
+  eq(30000, timeout_callback.delay)
+
+  vim.defer_fn = original_defer_fn
+  vim.fn.jobstart = original_jobstart
+end)
+
 test("fetch_models falls back to the static list for claude without spawning a job", function()
   local original_jobstart = vim.fn.jobstart
   local spawned = false

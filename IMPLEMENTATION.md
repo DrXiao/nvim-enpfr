@@ -842,7 +842,10 @@ model-name strings, asynchronously, regardless of backend:
   runs it via `vim.fn.jobstart` with `stdout_buffered = true` — no stdin, no
   cwd isolation, and none of `start_request()`'s byte-budget machinery,
   because this is a fixed, read-only command with no untrusted user text to
-  sandbox. `backends.parse_model_list(name, output)` then does the
+  sandbox. The run is bounded by a deadline (30s, overridable per call): a
+  stuck list command is stopped and reported as an empty list rather than
+  freezing the settings menu, which only opens once every backend has
+  resolved. `backends.parse_model_list(name, output)` then does the
   backend-specific line parsing: OpenCode's lines are already the full
   `provider/model` string the plugin's `--model` flag expects; Agy's lines
   are `<model-id>\t<description>`, and only the id before the tab is kept.
