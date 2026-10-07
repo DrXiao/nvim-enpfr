@@ -210,20 +210,29 @@ or filesystem operations. The plugin documents this residual limitation.
 
 ```text
 opencode run
-  --pure
+  --standalone
   --format json
   --model <provider/model>
 ```
 
-OpenCode receives an inline configuration through
-`OPENCODE_CONFIG_CONTENT` that:
+OpenCode V2 no longer accepts `--pure` (`Unrecognized flag: --pure`). The
+plugin receives an inline configuration through `OPENCODE_CONFIG_CONTENT`
+that:
 
 - Denies every permission
 - Disables write, edit, shell, and patch tools explicitly
+- Disables every external plugin (`plugins: ["-*", "opencode.*"]`, the V2
+  replacement for `--pure`; the re-enable keeps the built-in plugins that
+  provide agents, providers, and permissions — a bare `-*` disables the
+  built-in `build` agent and fails with `Agent not found: "build"`)
 - Disables sharing
 - Disables snapshots
 
-`--pure` also prevents external OpenCode plugins from loading.
+V2's shared background service owns its own configuration, so
+`OPENCODE_CONFIG_CONTENT` is only honored by a private server.
+`--standalone` starts one per request, which both makes the inline lock-down
+above effective and keeps the request isolated — the functionality `--pure`
+used to provide.
 
 ### Antigravity CLI (agy)
 
@@ -833,7 +842,10 @@ model-name strings, asynchronously, regardless of backend:
   runs it via `vim.fn.jobstart` with `stdout_buffered = true` — no stdin, no
   cwd isolation, and none of `start_request()`'s byte-budget machinery,
   because this is a fixed, read-only command with no untrusted user text to
-  sandbox. `backends.parse_model_list(name, output)` then does the
+  sandbox. The run is bounded by a deadline (30s, overridable per call): a
+  stuck list command is stopped and reported as an empty list rather than
+  freezing the settings menu, which only opens once every backend has
+  resolved. `backends.parse_model_list(name, output)` then does the
   backend-specific line parsing: OpenCode's lines are already the full
   `provider/model` string the plugin's `--model` flag expects; Agy's lines
   are `<model-id>\t<description>`, and only the id before the tab is kept.

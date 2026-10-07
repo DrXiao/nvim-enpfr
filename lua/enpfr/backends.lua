@@ -48,7 +48,12 @@ function M.command(name, model)
       "--json",
     }
   elseif name == "opencode" then
-    command = { "opencode", "run", "--pure", "--format", "json" }
+    -- V2 dropped `--pure` (unrecognized flag), and the shared background
+    -- service owns its own configuration, so OPENCODE_CONFIG_CONTENT is only
+    -- honored by a private server. `--standalone` starts one per request,
+    -- which both applies the inline lock-down (see M.environment) and keeps
+    -- the request isolated, matching what `--pure` used to guarantee.
+    command = { "opencode", "run", "--standalone", "--format", "json" }
   else
     command = {
       "agy",
@@ -201,6 +206,11 @@ function M.environment(name)
         bash = false,
         apply_patch = false,
       },
+      -- V2 replacement for the removed `--pure` flag: disable external
+      -- plugins while re-enabling the built-in `opencode.*` ones (agents,
+      -- providers, permissions, ...). A bare `-*` would also disable the
+      -- built-in `build` agent and fail with "Agent not found: \"build\"".
+      plugins = { "-*", "opencode.*" },
       share = "disabled",
       snapshot = false,
     }),
@@ -265,10 +275,22 @@ function M.parse_model_list(name, output)
   return models
 end
 
+-- How long a backend's model-list subprocess may run before fetch_models
+-- gives up and reports an empty list. The settings menu only opens once every
+-- backend has resolved (config_ui.build_menu), so a hung list command must
+-- never freeze the menu for good: report {} and let callers fall back to the
+-- static list / "[Enter manually]" escape hatch. Generous because the command
+-- may have to boot OpenCode's managed background service first.
+local DEFAULT_MODEL_LIST_TIMEOUT_MS = 30000
+
 -- Single entry point for callers: regardless of whether a backend supports
 -- live listing, on_done is always invoked asynchronously with a plain array
 -- of model-name strings, so callers never need to branch on backend tier.
-function M.fetch_models(name, on_done)
+-- Every live-list run is bounded by a deadline: if the subprocess does not
+-- exit within timeout_ms (default DEFAULT_MODEL_LIST_TIMEOUT_MS), it is
+-- stopped and on_done fires with {} instead of leaving the caller waiting
+-- forever.
+function M.fetch_models(name, on_done, timeout_ms)
   check_backend(name)
   local command = model_list_commands[name]
   if not command then
@@ -278,20 +300,42 @@ function M.fetch_models(name, on_done)
     return
   end
 
+  local deadline = timeout_ms or DEFAULT_MODEL_LIST_TIMEOUT_MS
+  local finished = false
+  local function done(models)
+    if finished then
+      return
+    end
+    finished = true
+    on_done(models)
+  end
+
   local stdout = {}
-  vim.fn.jobstart(command, {
+  local job_id = vim.fn.jobstart(command, {
     stdout_buffered = true,
     on_stdout = function(_, data)
       stdout = data
     end,
     on_exit = function(_, exit_code)
       if exit_code ~= 0 then
-        on_done({})
+        done({})
         return
       end
-      on_done(M.parse_model_list(name, table.concat(stdout, "\n")))
+      done(M.parse_model_list(name, table.concat(stdout, "\n")))
     end,
   })
+
+  if job_id <= 0 then
+    done({})
+    return
+  end
+
+  vim.defer_fn(function()
+    vim.fn.jobstop(job_id)
+    -- on_exit also fires for the killed job; the `finished` guard above keeps
+    -- that second callback from reaching the caller.
+    done({})
+  end, deadline)
 end
 
 -- Agy has no listing subcommand result to lean on for "which model is the

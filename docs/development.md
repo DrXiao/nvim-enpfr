@@ -44,5 +44,18 @@ quit normally or interrupt it (`Ctrl-C`) — the `dev` target sets a shell
 `trap ... EXIT` around the whole invocation, so nothing accumulates under
 `/tmp` across repeated `make dev` runs.
 
+The XDG isolation above would also hide the real OpenCode installation from
+the plugin, so the `dev` target explicitly restores it for the opencode CLI:
+`OPENCODE_CONFIG_DIR` and `OPENCODE_DB` are pointed back at the real config
+directory and database (env vars only the opencode CLI reads — Neovim ignores
+them), and a copy of the real service registration (`service.json`) is seeded
+into the sandboxed state directory. Without this, `opencode run` would fail
+with no credentials to route a model to, and `opencode models` would hang or
+exit 1 trying to start its own background service on the same port the real
+one already occupies — leaving `<F9>`'s settings menu waiting forever on the
+opencode row. OpenCode is the only backend that needs this; the other CLIs
+keep their configuration outside the XDG dirs or are not exercised by `make
+dev` in a way that depends on them.
+
 See [IMPLEMENTATION.md](../IMPLEMENTATION.md) for the plugin's internal
 architecture.
