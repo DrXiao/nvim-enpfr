@@ -210,20 +210,29 @@ or filesystem operations. The plugin documents this residual limitation.
 
 ```text
 opencode run
-  --pure
+  --standalone
   --format json
   --model <provider/model>
 ```
 
-OpenCode receives an inline configuration through
-`OPENCODE_CONFIG_CONTENT` that:
+OpenCode V2 no longer accepts `--pure` (`Unrecognized flag: --pure`). The
+plugin receives an inline configuration through `OPENCODE_CONFIG_CONTENT`
+that:
 
 - Denies every permission
 - Disables write, edit, shell, and patch tools explicitly
+- Disables every external plugin (`plugins: ["-*", "opencode.*"]`, the V2
+  replacement for `--pure`; the re-enable keeps the built-in plugins that
+  provide agents, providers, and permissions — a bare `-*` disables the
+  built-in `build` agent and fails with `Agent not found: "build"`)
 - Disables sharing
 - Disables snapshots
 
-`--pure` also prevents external OpenCode plugins from loading.
+V2's shared background service owns its own configuration, so
+`OPENCODE_CONFIG_CONTENT` is only honored by a private server.
+`--standalone` starts one per request, which both makes the inline lock-down
+above effective and keeps the request isolated — the functionality `--pure`
+used to provide.
 
 ### Antigravity CLI (agy)
 

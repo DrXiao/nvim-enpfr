@@ -36,10 +36,10 @@ test("builds a read-only ephemeral Codex command", function()
   }, command)
 end)
 
-test("builds a pure OpenCode command", function()
+test("builds a non-interactive OpenCode command", function()
   local command = backends.command("opencode", nil)
 
-  eq({ "opencode", "run", "--pure", "--format", "json" }, command)
+  eq({ "opencode", "run", "--standalone", "--format", "json" }, command)
 end)
 
 test("builds a sandboxed stream-json Agy command", function()
@@ -170,6 +170,7 @@ test("disables all OpenCode tools through inline configuration", function()
   eq(false, inline_config.tools.write)
   eq(false, inline_config.tools.edit)
   eq(false, inline_config.tools.bash)
+  eq({ "-*", "opencode.*" }, inline_config.plugins)
   eq("disabled", inline_config.share)
 end)
 

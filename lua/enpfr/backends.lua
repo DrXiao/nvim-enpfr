@@ -48,7 +48,12 @@ function M.command(name, model)
       "--json",
     }
   elseif name == "opencode" then
-    command = { "opencode", "run", "--pure", "--format", "json" }
+    -- V2 dropped `--pure` (unrecognized flag), and the shared background
+    -- service owns its own configuration, so OPENCODE_CONFIG_CONTENT is only
+    -- honored by a private server. `--standalone` starts one per request,
+    -- which both applies the inline lock-down (see M.environment) and keeps
+    -- the request isolated, matching what `--pure` used to guarantee.
+    command = { "opencode", "run", "--standalone", "--format", "json" }
   else
     command = {
       "agy",
@@ -201,6 +206,11 @@ function M.environment(name)
         bash = false,
         apply_patch = false,
       },
+      -- V2 replacement for the removed `--pure` flag: disable external
+      -- plugins while re-enabling the built-in `opencode.*` ones (agents,
+      -- providers, permissions, ...). A bare `-*` would also disable the
+      -- built-in `build` agent and fail with "Agent not found: \"build\"".
+      plugins = { "-*", "opencode.*" },
       share = "disabled",
       snapshot = false,
     }),
